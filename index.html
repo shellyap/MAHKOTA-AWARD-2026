@@ -10,8 +10,11 @@
     
     <!-- Babel for In-Browser JSX/TSX Compilation -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- html2pdf.js for PDF Generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
-    <!-- Import Map for Modules - FIXED FIREBASE IMPORTS -->
+    <!-- Import Map for Modules - USING GSTATIC FOR STABILITY -->
     <script type="importmap">
     {
       "imports": {
@@ -36,6 +39,21 @@
         }
         body {
             background-color: #f3f4f6;
+        }
+        @media print {
+            .no-print { display: none !important; }
+            .print-break { page-break-before: always; }
+            /* Reset layout constraints for printing */
+            body, #root, .max-w-7xl { 
+                width: 100% !important; 
+                max-width: none !important; 
+                margin: 0 !important; 
+                padding: 0 !important; 
+                background-color: white !important;
+                overflow: visible !important;
+            }
+            /* Ensure graphics/charts print correctly */
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         }
     </style>
 </head>
@@ -101,7 +119,8 @@
           Calculator,
           ArrowRightLeft,
           Cloud,
-          Wifi
+          Wifi,
+          Database
         } from 'lucide-react';
 
         // --- 1. FIREBASE INIT (SINGLETON PATTERN) ---
@@ -257,6 +276,39 @@
 
         // --- 4. SHARED COMPONENTS ---
 
+        const Legend = () => (
+          <div className="flex flex-wrap items-center justify-center gap-3 mt-6 p-3 bg-slate-50 rounded-lg border border-slate-100">
+            <span className="text-xs font-bold text-slate-400 uppercase mr-2">Grade Scale:</span>
+            {GRADE_THRESHOLDS.map(g => (
+              <div key={g.grade} className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full shadow-sm" style={{ backgroundColor: g.color }}></span>
+                <span className="text-[10px] font-medium text-slate-600">{g.grade}</span>
+              </div>
+            ))}
+          </div>
+        );
+
+        // CUSTOM MODAL COMPONENT (Replaces alert/confirm)
+        const ConfirmModal = ({ isOpen, message, onConfirm, onCancel, isAlert = false }) => {
+          if (!isOpen) return null;
+          return (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] animate-in fade-in duration-200">
+              <div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4 border border-slate-200">
+                <h3 className="font-bold text-lg mb-2 text-slate-800">{isAlert ? 'Notice' : 'Confirm Action'}</h3>
+                <p className="text-slate-600 mb-6 text-sm whitespace-pre-wrap leading-relaxed">{message}</p>
+                <div className="flex justify-end gap-3">
+                  {!isAlert && (
+                    <button onClick={onCancel} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium text-sm transition-colors">Cancel</button>
+                  )}
+                  <button onClick={onConfirm} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-medium text-sm shadow-md transition-colors">
+                    {isAlert ? 'OK' : 'Confirm'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        };
+
         const TrendChart = ({ data, showValue = true }) => {
           if (!data || data.length === 0) return <div className="h-full flex items-center justify-center text-gray-400 text-xs">No Data</div>;
           const padding = 20;
@@ -378,7 +430,7 @@
             const counts = { 'A+':0,'A':0,'A-':0,'B+':0,'B':0,'C+':0,'C':0,'D':0,'E':0,'G':0,'TH':0 };
             let totalVal = 0, studentCount = 0;
             studentList.forEach(s => {
-              const stats = getAssessmentStats(a.id, s.marks[a.id]);
+              const stats = getAssessmentStats(a.id, s.marks?.[a.id]); // SAFEGUARD
               if (!stats.isEmpty) {
                 if (stats.isTH) { counts['TH']++; totalVal += 9; studentCount++; } 
                 else { if (counts[stats.grade] !== undefined) counts[stats.grade]++; totalVal += stats.val; studentCount++; }
@@ -473,7 +525,7 @@
                     if (config.type === 'single') {
                       const val = parseVal(parts[1]);
                       if (val !== undefined) {
-                         marks = { [bulkAssessmentId]: { total: val === 'TH' ? 'TH' : Math.min(Math.max(0, val), 100) } };
+                          marks = { [bulkAssessmentId]: { total: val === 'TH' ? 'TH' : Math.min(Math.max(0, val), 100) } };
                       }
                     } else {
                       const marksToUpdate = {};
@@ -494,7 +546,7 @@
                         }
                       }
                       if (Object.keys(marksToUpdate).length > 0) {
-                         marks = { [bulkAssessmentId]: marksToUpdate };
+                          marks = { [bulkAssessmentId]: marksToUpdate };
                       }
                     }
                   }
@@ -582,8 +634,8 @@
                          />
                          <p className="text-[10px] text-slate-400 mt-1">
                            {bulkAssessmentId 
-                              ? (importPaperId === 'all' ? "Excel Format: Name [Tab] P1 [Tab] P2 [Tab] P3 [Tab] P4" : "Excel Format: Name [Tab] Score")
-                              : "Excel Format: Name (one per line)"}
+                             ? (importPaperId === 'all' ? "Excel Format: Name [Tab] P1 [Tab] P2 [Tab] P3 [Tab] P4" : "Excel Format: Name [Tab] Score")
+                             : "Excel Format: Name (one per line)"}
                          </p>
                      </div>
                    ) : (
@@ -621,10 +673,10 @@
                         <tr key={s.id} className="hover:bg-slate-50">
                           <td className="px-4 py-3 font-medium text-slate-900 sticky left-0 bg-white hover:bg-slate-50 shadow-sm z-10">{s.name}</td>
                           {role === 'admin' && <td className="px-4 py-3 text-slate-500 text-xs">{s.schoolName}</td>}
-                          {batchId ? (ASSESSMENT_CONFIG[batchId].type === 'single' ? <td className="p-1 text-center"><input className="w-16 text-center border rounded py-1" placeholder="-" value={s.marks?.[batchId]?.total || ''} onChange={e => onUpdate(s.id, batchId, 'total', e.target.value)} /></td> : PAPERS.map(p => <td key={p.id} className="p-1 text-center"><input className="w-full text-center border rounded py-1" placeholder="-" value={s.marks?.[batchId]?.[p.id] || ''} onChange={e => onUpdate(s.id, batchId, p.id, e.target.value)} /></td>)) : ASSESSMENTS.map(a => { const stats = getAssessmentStats(a.id, s.marks[a.id]); return <td key={a.id} className="px-2 py-3 text-center"><span className={`px-2 py-1 rounded text-[10px] font-bold ${getGradeColor(stats.grade)}`}>{stats.isTH ? 'TH' : stats.grade}</span></td>; })}
+                          {batchId ? (ASSESSMENT_CONFIG[batchId].type === 'single' ? <td className="p-1 text-center"><input className="w-16 text-center border rounded py-1" placeholder="-" value={s.marks?.[batchId]?.total || ''} onChange={e => onUpdate(s.id, batchId, 'total', e.target.value)} /></td> : PAPERS.map(p => <td key={p.id} className="p-1 text-center"><input className="w-full text-center border rounded py-1" placeholder="-" value={s.marks?.[batchId]?.[p.id] || ''} onChange={e => onUpdate(s.id, batchId, p.id, e.target.value)} /></td>)) : ASSESSMENTS.map(a => { const stats = getAssessmentStats(a.id, s.marks?.[a.id]); return <td key={a.id} className="px-2 py-3 text-center"><span className={`px-2 py-1 rounded text-[10px] font-bold ${getGradeColor(stats.grade)}`}>{stats.isTH ? 'TH' : stats.grade}</span></td>; })}
                           {role === 'teacher' && (
                             <td className="p-1 text-center">
-                              <button onClick={() => onDelete(s.id)} className="text-red-400 hover:text-red-600 p-1">
+                              <button onClick={(e) => { e.stopPropagation(); onDelete(s.id); }} className="text-red-400 hover:text-red-600 p-1">
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             </td>
@@ -644,7 +696,11 @@
           const [search, setSearch] = useState('');
           const filtered = data.filter(s => s.name.toLowerCase().includes(search.toLowerCase()));
           const student = data.find(s => s.id === selectedId);
-          const studentGraphData = student ? ASSESSMENTS.map(a => ({ label: a.label, percentage: getAssessmentStats(a.id, student.marks[a.id]).isTH ? 0 : getAssessmentStats(a.id, student.marks[a.id]).percentage })) : [];
+          // SAFEGUARD ADDED: Check if marks exist before accessing
+          const studentGraphData = student ? ASSESSMENTS.map(a => ({ 
+            label: a.label, 
+            percentage: getAssessmentStats(a.id, student.marks?.[a.id]).isTH ? 0 : getAssessmentStats(a.id, student.marks?.[a.id]).percentage 
+          })) : [];
 
           return (
             <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-140px)]">
@@ -659,7 +715,7 @@
                   <div className="space-y-6">
                     <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-slate-800">{student.name}</h2><button onClick={() => onDelete(student.id)} className="text-red-500 bg-red-50 px-3 py-1 rounded text-xs font-bold hover:bg-red-100">Delete</button></div>
                     <div className="h-48 w-full"><TrendChart data={studentGraphData} /></div>
-                    <div className="overflow-x-auto"><table className="w-full text-sm border-collapse"><thead><tr className="border-b text-xs text-slate-500 uppercase"><th className="p-2 text-left w-32 bg-slate-50">Item</th>{ASSESSMENTS.map(a => <th key={a.id} className="p-2 text-center border-l bg-slate-50 min-w-[80px]">{a.label}</th>)}</tr></thead><tbody>{PAPERS.map(p => <tr key={p.id} className="border-b"><td className="p-2 font-medium text-slate-700 bg-slate-50/50">{p.id.toUpperCase()} <span className="text-[10px] text-slate-400">/{p.max}</span></td>{ASSESSMENTS.map(a => { const isPaper = ASSESSMENT_CONFIG[a.id].type === 'paper'; return <td key={a.id} className="p-1 border-l text-center">{isPaper ? <input className="w-full text-center py-1 rounded hover:bg-slate-50 focus:bg-white focus:ring-1 focus:ring-blue-500" placeholder="-" value={student.marks?.[a.id]?.[p.id] || ''} onChange={e => onUpdate(student.id, a.id, p.id, e.target.value)} /> : <span className="text-slate-300">-</span>}</td> })}</tr>)}<tr className="bg-blue-50/10 border-b"><td className="p-2 font-bold text-slate-800 bg-slate-50">Total</td>{ASSESSMENTS.map(a => { const stats = getAssessmentStats(a.id, student.marks[a.id]); const isSingle = ASSESSMENT_CONFIG[a.id].type === 'single'; return <td key={a.id} className="p-2 border-l text-center">{isSingle ? <input className="w-full text-center font-bold bg-transparent focus:bg-white" placeholder="/100" value={student.marks?.[a.id]?.total || ''} onChange={e => onUpdate(student.id, a.id, 'total', e.target.value)} /> : <div className="flex flex-col"><span className="text-blue-700 font-bold text-lg">{stats.percentage.toFixed(1)}%</span><span className="text-[10px] text-slate-400">{stats.raw}/{ASSESSMENT_CONFIG[a.id].max}</span></div>}</td> })}</tr></tbody></table></div>
+                    <div className="overflow-x-auto"><table className="w-full text-sm border-collapse"><thead><tr className="border-b text-xs text-slate-500 uppercase"><th className="p-2 text-left w-32 bg-slate-50">Item</th>{ASSESSMENTS.map(a => <th key={a.id} className="p-2 text-center border-l bg-slate-50 min-w-[80px]">{a.label}</th>)}</tr></thead><tbody>{PAPERS.map(p => <tr key={p.id} className="border-b"><td className="p-2 font-medium text-slate-700 bg-slate-50/50">{p.id.toUpperCase()} <span className="text-[10px] text-slate-400">/{p.max}</span></td>{ASSESSMENTS.map(a => { const isPaper = ASSESSMENT_CONFIG[a.id].type === 'paper'; return <td key={a.id} className="p-1 border-l text-center">{isPaper ? <input className="w-full text-center py-1 rounded hover:bg-slate-50 focus:bg-white focus:ring-1 focus:ring-blue-500" placeholder="-" value={student.marks?.[a.id]?.[p.id] || ''} onChange={e => onUpdate(student.id, a.id, p.id, e.target.value)} /> : <span className="text-slate-300">-</span>}</td> })}</tr>)}<tr className="bg-blue-50/10 border-b"><td className="p-2 font-bold text-slate-800 bg-slate-50">Total</td>{ASSESSMENTS.map(a => { const stats = getAssessmentStats(a.id, student.marks?.[a.id]); const isSingle = ASSESSMENT_CONFIG[a.id].type === 'single'; return <td key={a.id} className="p-2 border-l text-center">{isSingle ? <input className="w-full text-center font-bold bg-transparent focus:bg-white" placeholder="/100" value={student.marks?.[a.id]?.total || ''} onChange={e => onUpdate(student.id, a.id, 'total', e.target.value)} /> : <div className="flex flex-col"><span className="text-blue-700 font-bold text-lg">{stats.percentage.toFixed(1)}%</span><span className="text-[10px] text-slate-400">{stats.raw}/{ASSESSMENT_CONFIG[a.id].max}</span></div>}</td> })}</tr></tbody></table></div>
                     <Legend />
                   </div>
                 ) : <div className="h-full flex items-center justify-center text-slate-400">Select a student</div>}
@@ -671,7 +727,8 @@
         const ClassAnalysisView = ({ data, title }) => {
           const classTrendData = ASSESSMENTS.map(a => {
             let totalPerc = 0, count = 0;
-            data.forEach(s => { const stats = getAssessmentStats(a.id, s.marks[a.id]); if (!stats.isEmpty && !stats.isTH) { totalPerc += stats.percentage; count++; } });
+            // SAFEGUARD ADDED: marks?[a.id]
+            data.forEach(s => { const stats = getAssessmentStats(a.id, s.marks?.[a.id]); if (!stats.isEmpty && !stats.isTH) { totalPerc += stats.percentage; count++; } });
             return { label: a.label, percentage: count > 0 ? totalPerc / count : 0 };
           });
           return (
@@ -692,17 +749,36 @@
           const [compareClassB, setCompareClassB] = useState('');
           
           const schools = useMemo(() => ['All', ...new Set(data.map(d => d.schoolName))].sort(), [data]);
+          
           const classes = useMemo(() => {
             const filteredBySchool = selectedSchool === 'All' ? data : data.filter(d => d.schoolName === selectedSchool);
+            
+            // Filter manual classes based on selected school
+            const relevantManualClasses = manualClasses.filter(m => selectedSchool === 'All' || m.schoolName === selectedSchool);
+            const manualClassNames = relevantManualClasses.map(m => m.className);
+
+            const derivedClassNames = filteredBySchool.map(d => d.className);
+
             if (selectedSchool === 'All') {
               const counts = {};
               filteredBySchool.forEach(d => { if (!counts[d.className]) counts[d.className] = new Set(); counts[d.className].add(d.schoolName); });
+              
+              // Also account for manual classes in counts (though manual classes strictly belong to one school in metadata)
+              relevantManualClasses.forEach(m => { if (!counts[m.className]) counts[m.className] = new Set(); counts[m.className].add(m.schoolName); });
+
               const options = new Set();
+              
+              // Process derived
               filteredBySchool.forEach(d => { if (counts[d.className].size > 1) { options.add(`${d.className} (${d.schoolName})`); } else { options.add(d.className); } });
+              // Process manual
+              relevantManualClasses.forEach(m => { if (counts[m.className] && counts[m.className].size > 1) { options.add(`${m.className} (${m.schoolName})`); } else { options.add(m.className); } });
+
               return ['All', ...options].sort();
             }
-            return ['All', ...new Set(filteredBySchool.map(d => d.className))].sort();
-          }, [data, selectedSchool]);
+            
+            // If a specific school is selected, simply merge unique names
+            return ['All', ...new Set([...derivedClassNames, ...manualClassNames])].sort();
+          }, [data, selectedSchool, manualClasses]);
 
           // Dropdown options for compare (filtering 'All')
           const dropdownClasses = useMemo(() => classes.filter(c => c !== 'All'), [classes]);
@@ -725,13 +801,13 @@
           const totalStudents = filteredDataSet.length;
           const currentAvg = useMemo(() => {
             let tot = 0, cnt = 0;
-            filteredDataSet.forEach(s => { const st = getAssessmentStats('spmc', s.marks.spmc); if(!st.isEmpty){ tot+=st.percentage; cnt++ } });
+            filteredDataSet.forEach(s => { const st = getAssessmentStats('spmc', s.marks?.spmc); if(!st.isEmpty){ tot+=st.percentage; cnt++ } });
             return cnt > 0 ? tot/cnt : 0;
           }, [filteredDataSet]);
 
           const currentGPMP = useMemo(() => {
             let totalVal = 0, count = 0;
-            filteredDataSet.forEach(s => { const st = getAssessmentStats('spmc', s.marks.spmc); if (!st.isEmpty) { if (st.isTH) { totalVal += 9; count++; } else { totalVal += st.val; count++; } } });
+            filteredDataSet.forEach(s => { const st = getAssessmentStats('spmc', s.marks?.spmc); if (!st.isEmpty) { if (st.isTH) { totalVal += 9; count++; } else { totalVal += st.val; count++; } } });
             return count > 0 ? totalVal / count : 0;
           }, [filteredDataSet]);
 
@@ -753,7 +829,7 @@
                  
                  return ASSESSMENTS.map(a => {
                     let t=0, c=0; 
-                    classData.forEach(s => { const st=getAssessmentStats(a.id,s.marks[a.id]); if(!st.isEmpty){t+=st.percentage;c++} }); 
+                    classData.forEach(s => { const st=getAssessmentStats(a.id,s.marks?.[a.id]); if(!st.isEmpty){t+=st.percentage;c++} }); 
                     return c>0?t/c:0;
                  });
               };
@@ -764,15 +840,18 @@
               return mainSeries;
             } else {
                 if (studentSearch) {
-                     return filteredDataSet.slice(0, 10).map((s, idx) => ({ name: s.name, color: CLASS_COLORS[idx % CLASS_COLORS.length], data: ASSESSMENTS.map(a => getAssessmentStats(a.id, s.marks[a.id]).percentage) }));
+                      // SAFEGUARD ADDED: Optional chaining for marks
+                      return filteredDataSet.slice(0, 10).map((s, idx) => ({ name: s.name, color: CLASS_COLORS[idx % CLASS_COLORS.length], data: ASSESSMENTS.map(a => getAssessmentStats(a.id, s.marks?.[a.id]).percentage) }));
                 } else if (selectedClass !== 'All') {
-                     const avg = ASSESSMENTS.map(a => { let t=0,c=0; filteredDataSet.forEach(s=>{ const st=getAssessmentStats(a.id,s.marks[a.id]); if(!st.isEmpty){t+=st.percentage;c++} }); return c>0?t/c:0; });
-                     return [{ name: `${selectedClass} Avg`, color: '#3b82f6', data: avg }];
+                      // SAFEGUARD ADDED: Optional chaining for marks
+                      const avg = ASSESSMENTS.map(a => { let t=0,c=0; filteredDataSet.forEach(s=>{ const st=getAssessmentStats(a.id,s.marks?.[a.id]); if(!st.isEmpty){t+=st.percentage;c++} }); return c>0?t/c:0; });
+                      return [{ name: `${selectedClass} Avg`, color: '#3b82f6', data: avg }];
                 } else {
                     if (selectedSchool === 'All' && session.role === 'admin') {
                          return schools.filter(s => s!=='All').map((s, i) => {
                              const sData = data.filter(d => d.schoolName === s);
-                             const pts = ASSESSMENTS.map(a => { let t=0,cnt=0; sData.forEach(st=>{ const stat=getAssessmentStats(a.id,st.marks[a.id]); if(!stat.isEmpty){t+=stat.percentage;cnt++} }); return cnt>0?t/cnt:0; });
+                             // SAFEGUARD ADDED: Optional chaining for marks
+                             const pts = ASSESSMENTS.map(a => { let t=0,cnt=0; sData.forEach(st=>{ const stat=getAssessmentStats(a.id,st.marks?.[a.id]); if(!stat.isEmpty){t+=stat.percentage;cnt++} }); return cnt>0?t/cnt:0; });
                              return { name: s, color: CLASS_COLORS[i % CLASS_COLORS.length], data: pts };
                          });
                     } else {
@@ -784,7 +863,8 @@
                              if (compositeMatch) { targetCN = compositeMatch[1]; targetSN = compositeMatch[2]; }
 
                              const cData = data.filter(d => d.className === targetCN && (targetSN === 'All' || d.schoolName === targetSN));
-                             const pts = ASSESSMENTS.map(a => { let t=0,cnt=0; cData.forEach(s=>{ const st=getAssessmentStats(a.id,s.marks[a.id]); if(!stat.isEmpty){t+=stat.percentage;cnt++} }); return cnt>0?t/cnt:0; });
+                             // FIX: Corrected variable name from 'stat' to 'st' and added optional chaining
+                             const pts = ASSESSMENTS.map(a => { let t=0,cnt=0; cData.forEach(s=>{ const st=getAssessmentStats(a.id,s.marks?.[a.id]); if(!st.isEmpty){t+=st.percentage;cnt++} }); return cnt>0?t/cnt:0; });
                              return { name: c, color: CLASS_COLORS[i % CLASS_COLORS.length], data: pts };
                          });
                     }
@@ -821,16 +901,16 @@
                    </div>
 
                    {viewMode === 'overview' ? (
-                      <div className="flex items-center gap-2">
-                          <select className="bg-white border p-2 rounded text-sm min-w-[150px]" value={selectedClass} onChange={e => setSelectedClass(e.target.value)}>{classes.map(c => <option key={c} value={c}>{c === 'All' ? 'All Classes' : c}</option>)}</select>
-                          <div className="relative"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" /><input className="w-full pl-9 p-2 border rounded text-sm" placeholder="Filter student..." value={studentSearch} onChange={e => setStudentSearch(e.target.value)} /></div>
-                      </div>
+                     <div className="flex items-center gap-2">
+                         <select className="bg-white border p-2 rounded text-sm min-w-[150px]" value={selectedClass} onChange={e => setSelectedClass(e.target.value)}>{classes.map(c => <option key={c} value={c}>{c === 'All' ? 'All Classes' : c}</option>)}</select>
+                         <div className="relative"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" /><input className="w-full pl-9 p-2 border rounded text-sm" placeholder="Filter student..." value={studentSearch} onChange={e => setStudentSearch(e.target.value)} /></div>
+                     </div>
                    ) : (
-                      <div className="flex items-center gap-2">
+                     <div className="flex items-center gap-2">
                          <select className="bg-white border border-blue-200 p-2 rounded text-sm text-blue-700 font-medium" value={compareClassA} onChange={e => setCompareClassA(e.target.value)}><option value="">Select Class A</option>{dropdownClasses.map(c => <option key={c} value={c}>{c}</option>)}</select>
                          <span className="text-slate-400 font-bold px-1">VS</span>
                          <select className="bg-white border border-red-200 p-2 rounded text-sm text-red-700 font-medium" value={compareClassB} onChange={e => setCompareClassB(e.target.value)}><option value="">Select Class B</option>{dropdownClasses.map(c => <option key={c} value={c}>{c}</option>)}</select>
-                      </div>
+                     </div>
                    )}
                  </div>
                  <div className="flex items-center gap-4 pl-4 border-l border-slate-200">
@@ -859,27 +939,44 @@
           const skillAverages = useMemo(() => {
             const totals = { p1: 0, p2: 0, p3: 0, p4: 0 };
             const counts = { p1: 0, p2: 0, p3: 0, p4: 0 };
-            data.forEach(s => { const marks = s.marks[selectedAssessment]; if (marks) { PAPERS.forEach(p => { if (marks[p.id] && marks[p.id] !== 'TH') { totals[p.id] += (parseInt(marks[p.id]) / p.max) * 100; counts[p.id]++; } }); } });
+            data.forEach(s => { const marks = s.marks?.[selectedAssessment]; if (marks) { PAPERS.forEach(p => { if (marks[p.id] && marks[p.id] !== 'TH') { totals[p.id] += (parseInt(marks[p.id]) / p.max) * 100; counts[p.id]++; } }); } });
             return PAPERS.map(p => ({ ...p, avg: counts[p.id] > 0 ? totals[p.id] / counts[p.id] : 0 })).sort((a, b) => a.avg - b.avg); 
           }, [data, selectedAssessment]);
 
           const currentAvg = useMemo(() => {
             let tot = 0, cnt = 0;
-            data.forEach(s => { const st = getAssessmentStats(selectedAssessment, s.marks[selectedAssessment]); if(!st.isEmpty){ tot+=st.percentage; cnt++ } });
+            data.forEach(s => { const st = getAssessmentStats(selectedAssessment, s.marks?.[selectedAssessment]); if(!st.isEmpty){ tot+=st.percentage; cnt++ } });
             return cnt > 0 ? tot/cnt : 0;
           }, [data, selectedAssessment]);
 
           const currentGPMP = useMemo(() => {
             let totalVal = 0, count = 0;
-            data.forEach(s => { const st = getAssessmentStats(selectedAssessment, s.marks[selectedAssessment]); if (!st.isEmpty) { if (st.isTH) { totalVal += 9; count++; } else { totalVal += st.val; count++; } } });
+            data.forEach(s => { const st = getAssessmentStats(selectedAssessment, s.marks?.[selectedAssessment]); if (!st.isEmpty) { if (st.isTH) { totalVal += 9; count++; } else { totalVal += st.val; count++; } } });
             return count > 0 ? totalVal / count : 0;
           }, [data, selectedAssessment]);
 
           const gap = currentAvg - targetKPI;
           const gpmpGap = targetGPMP - currentGPMP; 
-          const weakestSkill = skillAverages[0];
+          const weakestSkill = skillAverages[0] || { skill: "N/A", avg: 0, id: 'none' };
 
-          const handlePrint = () => window.print();
+          const handleDownloadPDF = () => {
+             const element = document.getElementById('report-content');
+             if (window.html2pdf) {
+                 const opt = {
+                   margin:       0.5,
+                   filename:     'English_Performance_Report.pdf',
+                   image:        { type: 'jpeg', quality: 0.98 },
+                   html2canvas:  { scale: 2, useCORS: true },
+                   jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+                 };
+                 window.html2pdf().set(opt).from(element).save();
+             } else {
+                 // Fallback if library fails to load
+                 window.focus();
+                 window.print();
+             }
+          };
+
           const handleDownloadCSV = () => {
             const headers = ["Metric", "Value"];
             const rows = [["Assessment", ASSESSMENTS.find(a => a.id === selectedAssessment)?.label], ["Current Average", currentAvg.toFixed(2) + "%"], ["Target KPI", targetKPI + "%"], ["Gap", gap.toFixed(2) + "%"], ["Current GPMP", currentGPMP.toFixed(2)], ["Target GPMP", targetGPMP], ["Weakest Skill", weakestSkill ? weakestSkill.skill : "None"], ["Weakest Skill Score", weakestSkill ? weakestSkill.avg.toFixed(1) + "%" : "0%"]];
@@ -893,7 +990,7 @@
             GRADE_THRESHOLDS.forEach(g => counts[g.grade] = 0);
             let hasData = false;
             data.forEach(s => {
-              const stats = getAssessmentStats(selectedAssessment, s.marks[selectedAssessment]);
+              const stats = getAssessmentStats(selectedAssessment, s.marks?.[selectedAssessment]);
               if (!stats.isEmpty && !stats.isTH) {
                 if (counts[stats.grade] !== undefined) counts[stats.grade]++;
                 hasData = true;
@@ -908,7 +1005,7 @@
               let totalScore = 0;
               let count = 0;
               data.forEach(s => {
-                const stats = getAssessmentStats(assessment.id, s.marks[assessment.id]);
+                const stats = getAssessmentStats(assessment.id, s.marks?.[assessment.id]);
                 if (!stats.isEmpty && !stats.isTH) {
                   totalScore += stats.percentage;
                   count++;
@@ -931,16 +1028,16 @@
                    <div className="h-6 w-px bg-slate-200"></div>
                    <select className="p-2 border rounded-lg text-sm bg-slate-50" value={selectedAssessment} onChange={(e) => setSelectedAssessment(e.target.value)}>{ASSESSMENTS.map(a => <option key={a.id} value={a.id}>Report For: {a.label}</option>)}</select>
                  </div>
-                 <div className="flex gap-2"><button onClick={handleDownloadCSV} className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"><FileSpreadsheet className="w-4 h-4" /> Export Excel</button><button onClick={handlePrint} className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors"><Printer className="w-4 h-4" /> Print PDF</button></div>
+                 <div className="flex gap-2"><button onClick={handleDownloadCSV} className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"><FileSpreadsheet className="w-4 h-4" /> Export Excel</button><button onClick={handleDownloadPDF} className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors"><Download className="w-4 h-4" /> Download PDF</button></div>
               </div>
               
-              <div className="bg-white p-8 rounded-xl shadow-lg border border-slate-200 print:shadow-none print:border-none print:p-0">
+              <div id="report-content" className="bg-white p-8 rounded-xl shadow-lg border border-slate-200 print:shadow-none print:border-none print:p-0">
                  <div className="flex justify-between items-start mb-8 border-b-2 border-slate-900 pb-4"><div><h1 className="text-3xl font-bold text-slate-900 mb-1">English Performance Report</h1><p className="text-slate-500 font-medium">{ASSESSMENTS.find(a => a.id === selectedAssessment)?.label} Analysis • Generated on {new Date().toLocaleDateString()}</p></div><div className="text-right"><div className="text-4xl font-black text-slate-900">{currentAvg.toFixed(2)}%</div><div className="text-xs uppercase font-bold text-slate-400 tracking-wider">Current Average</div></div></div>
                  
                  <div className="grid grid-cols-2 gap-8 mb-8"><div className={`p-6 rounded-xl border-l-4 ${gap >= 0 ? 'bg-green-50 border-green-500' : 'bg-red-50 border-red-500'}`}><h3 className="text-sm font-bold uppercase tracking-wide mb-1 text-slate-500">Percentage Gap Analysis</h3><div className="flex items-baseline gap-2"><span className={`text-3xl font-bold ${gap >= 0 ? 'text-green-700' : 'text-red-700'}`}>{gap > 0 ? '+' : ''}{gap.toFixed(2)}%</span><span className="text-sm font-medium text-slate-600">from {targetKPI}% Target</span></div><p className="text-xs mt-2 text-slate-500">{gap >= 0 ? "Excellent work! The cohort is performing above the district target." : "Performance is below target. Immediate intervention is recommended to bridge the gap."}</p></div><div className={`p-6 rounded-xl border-l-4 ${gpmpGap >= 0 ? 'bg-green-50 border-green-500' : 'bg-red-50 border-red-500'}`}><h3 className="text-sm font-bold uppercase tracking-wide mb-1 text-slate-500">GPMP Analysis</h3><div className="flex items-baseline gap-2"><span className={`text-3xl font-bold ${gpmpGap >= 0 ? 'text-green-700' : 'text-red-700'}`}>{currentGPMP.toFixed(2)}</span><span className="text-sm font-medium text-slate-600">vs Target {targetGPMP.toFixed(2)}</span></div><p className="text-xs mt-2 text-slate-500">{gpmpGap >= 0 ? "GPMP is on track (Lower is better)." : `GPMP needs improvement by ${Math.abs(gpmpGap).toFixed(2)} points.`}</p></div></div>
                  
                  {/* VISUAL CHARTS SECTION */}
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 print-break">
                     <div className="bg-white p-6 rounded-xl border border-slate-200">
                        <h3 className="text-sm font-bold uppercase tracking-wide mb-4 text-slate-500 flex items-center gap-2"><TrendingUp className="w-4 h-4" /> Overall Trend</h3>
                        <div className="h-64">
@@ -966,7 +1063,7 @@
         const LeaderboardView = ({ data }) => {
           const [assessmentId, setAssessmentId] = useState('spmc');
           const rankings = data
-            .map(s => ({ ...s, stats: getAssessmentStats(assessmentId, s.marks[assessmentId]) }))
+            .map(s => ({ ...s, stats: getAssessmentStats(assessmentId, s.marks?.[assessmentId]) })) // SAFEGUARD ADDED
             .filter(s => !s.stats.isEmpty && !s.stats.isTH)
             .sort((a, b) => b.stats.percentage - a.stats.percentage)
             .slice(0, 50);
@@ -985,8 +1082,6 @@
         };
 
         // --- FIXED DATA EXPORT VIEW ---
-        // This component now receives the FULL dataset ('data') regardless of tab selection
-        // and calculates its own 'availableClasses' based on the school filter.
         
         const DataExportView = ({ data, role }) => {
           const [filterSchool, setFilterSchool] = useState('All');
@@ -1021,7 +1116,7 @@
             // Class Filter
             if (filterClass !== 'All' && s.className !== filterClass) return false;
             
-            const stats = getAssessmentStats(targetAssessment, s.marks[targetAssessment]);
+            const stats = getAssessmentStats(targetAssessment, s.marks?.[targetAssessment]); // SAFEGUARD ADDED
             
             // Grade Filter
             if (filterGrade.length > 0 && !filterGrade.includes(stats.grade)) return false;
@@ -1038,8 +1133,8 @@
           const handleExport = () => {
             const headers = ["Name", "Class", "School", "Assessment", "Score", "Grade", "Reading", "Writing", "Speaking", "Listening"];
             const rows = filtered.map(s => {
-              const stats = getAssessmentStats(targetAssessment, s.marks[targetAssessment]);
-              const m = s.marks[targetAssessment] || {};
+              const stats = getAssessmentStats(targetAssessment, s.marks?.[targetAssessment]); // SAFEGUARD ADDED
+              const m = s.marks?.[targetAssessment] || {};
               return [
                 s.name, s.className, s.schoolName, targetAssessment.toUpperCase(), 
                 stats.percentage.toFixed(2), stats.grade,
@@ -1080,9 +1175,9 @@
                     <div>
                       <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Mark Range (%)</label>
                       <div className="flex items-center gap-2">
-                         <input className="w-16 p-2 border rounded text-sm text-center" placeholder="0" value={filterMinMark} onChange={e => setFilterMinMark(e.target.value)} />
-                         <span className="text-slate-400">-</span>
-                         <input className="w-16 p-2 border rounded text-sm text-center" placeholder="100" value={filterMaxMark} onChange={e => setFilterMaxMark(e.target.value)} />
+                          <input className="w-16 p-2 border rounded text-sm text-center" placeholder="0" value={filterMinMark} onChange={e => setFilterMinMark(e.target.value)} />
+                          <span className="text-slate-400">-</span>
+                          <input className="w-16 p-2 border rounded text-sm text-center" placeholder="100" value={filterMaxMark} onChange={e => setFilterMaxMark(e.target.value)} />
                       </div>
                     </div>
                  </div>
@@ -1110,26 +1205,148 @@
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="overflow-x-auto max-h-[500px]">
                   <table className="w-full text-sm text-left">
-                     <thead className="bg-slate-50 text-xs uppercase text-slate-500 sticky top-0">
-                       <tr><th className="p-3">Name</th><th className="p-3">Class</th><th className="p-3">School</th><th className="p-3 text-center">Score</th><th className="p-3 text-center">Grade</th></tr>
-                     </thead>
-                     <tbody className="divide-y divide-slate-100">
-                       {filtered.map(s => {
-                         const stats = getAssessmentStats(targetAssessment, s.marks[targetAssessment]);
-                         return (
-                           <tr key={s.id} className="hover:bg-slate-50">
-                             <td className="p-3 font-medium text-slate-900">{s.name}</td>
-                             <td className="p-3 text-slate-500">{s.className}</td>
-                             <td className="p-3 text-slate-500 text-xs">{s.schoolName}</td>
-                             <td className="p-3 text-center font-bold text-blue-600">{stats.percentage.toFixed(1)}%</td>
-                             <td className="p-3 text-center"><span className={`px-2 py-0.5 rounded text-[10px] font-bold text-white`} style={{ backgroundColor: GRADE_THRESHOLDS.find(g => g.grade === stats.grade)?.color || '#ccc' }}>{stats.grade}</span></td>
-                           </tr>
-                         );
-                       })}
-                     </tbody>
+                      <thead className="bg-slate-50 text-xs uppercase text-slate-500 sticky top-0">
+                        <tr><th className="p-3">Name</th><th className="p-3">Class</th><th className="p-3">School</th><th className="p-3 text-center">Score</th><th className="p-3 text-center">Grade</th></tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filtered.map(s => {
+                          const stats = getAssessmentStats(targetAssessment, s.marks?.[targetAssessment]); // SAFEGUARD ADDED
+                          return (
+                            <tr key={s.id} className="hover:bg-slate-50">
+                              <td className="p-3 font-medium text-slate-900">{s.name}</td>
+                              <td className="p-3 text-slate-500">{s.className}</td>
+                              <td className="p-3 text-slate-500 text-xs">{s.schoolName}</td>
+                              <td className="p-3 text-center font-bold text-blue-600">{stats.percentage.toFixed(1)}%</td>
+                              <td className="p-3 text-center"><span className={`px-2 py-0.5 rounded text-[10px] font-bold text-white`} style={{ backgroundColor: GRADE_THRESHOLDS.find(g => g.grade === stats.grade)?.color || '#ccc' }}>{stats.grade}</span></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
                   </table>
                 </div>
               </div>
+            </div>
+          );
+        };
+
+        const AdminManagerView = ({ data, db, appId, requestConfirm }) => {
+          const [expandedSchool, setExpandedSchool] = useState(null);
+
+          // Derive data structure: Array of { name: 'School A', classes: ['Class 1', 'Class 2'] }
+          const schools = useMemo(() => {
+            const schoolMap = {};
+            data.forEach(s => {
+                if (!schoolMap[s.schoolName]) schoolMap[s.schoolName] = new Set();
+                schoolMap[s.schoolName].add(s.className);
+            });
+            return Object.keys(schoolMap).sort().map(s => ({
+                name: s,
+                classes: Array.from(schoolMap[s]).sort()
+            }));
+          }, [data]);
+
+          const deleteSchoolData = (schoolName) => {
+             requestConfirm(`WARNING: DELETE ALL DATA FOR "${schoolName}"?\n\nThis includes ALL students and class records for this school.\nThis action cannot be undone.`, async () => {
+                 const batch = writeBatch(db);
+                 let opCount = 0;
+
+                 // 1. Find all students in school
+                 const qStudents = query(collection(db, 'artifacts', appId, 'public', 'data', 'student_records'), where('schoolName', '==', schoolName));
+                 const snapStudents = await getDocs(qStudents);
+                 snapStudents.forEach(doc => { batch.delete(doc.ref); opCount++; });
+
+                 // 2. Find all class metadata for school
+                 const qMeta = query(collection(db, 'artifacts', appId, 'public', 'data', 'class_metadata'), where('schoolName', '==', schoolName));
+                 const snapMeta = await getDocs(qMeta);
+                 snapMeta.forEach(doc => { batch.delete(doc.ref); opCount++; });
+
+                 if (opCount > 0) {
+                     await batch.commit();
+                     // alert deleted via modal logic if desired, but ui updates automatically via realtime
+                 }
+             });
+          };
+
+          const deleteClassData = (schoolName, className) => {
+             requestConfirm(`Delete class "${className}" from "${schoolName}"?\n\nThis will delete all student records in this class.`, async () => {
+                 const batch = writeBatch(db);
+                 let opCount = 0;
+
+                 // FIX: RULE 2 - No complex queries. Fetch by School, Filter by Class in JS.
+                 
+                 // 1. Students
+                 const qStudents = query(collection(db, 'artifacts', appId, 'public', 'data', 'student_records'), where('schoolName', '==', schoolName));
+                 const snapStudents = await getDocs(qStudents);
+                 snapStudents.forEach(doc => {
+                     if (doc.data().className === className) {
+                         batch.delete(doc.ref);
+                         opCount++;
+                     }
+                 });
+
+                 // 2. Metadata
+                 const qMeta = query(collection(db, 'artifacts', appId, 'public', 'data', 'class_metadata'), where('schoolName', '==', schoolName));
+                 const snapMeta = await getDocs(qMeta);
+                 snapMeta.forEach(doc => {
+                     if (doc.data().className === className) {
+                         batch.delete(doc.ref);
+                         opCount++;
+                     }
+                 });
+
+                 if (opCount > 0) {
+                     await batch.commit();
+                 }
+             });
+          };
+
+          return (
+            <div className="space-y-6 animate-in fade-in">
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                    <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
+                        <Database className="w-5 h-5 text-red-500" /> Database Management
+                    </h3>
+                    <p className="text-sm text-slate-500 mb-6">
+                        Use this panel to clean up data errors (e.g. typos in School names). 
+                        <span className="text-red-600 font-bold ml-1">Warning: Deletions are permanent.</span>
+                    </p>
+
+                    <div className="space-y-4">
+                        {schools.map(school => (
+                            <div key={school.name} className="border rounded-lg overflow-hidden">
+                                <div className="bg-slate-50 p-4 flex justify-between items-center">
+                                    <button onClick={() => setExpandedSchool(expandedSchool === school.name ? null : school.name)} className="font-bold text-slate-700 flex items-center gap-2 hover:text-blue-600">
+                                        {expandedSchool === school.name ? <ChevronRight className="w-4 h-4 rotate-90 transition-transform" /> : <ChevronRight className="w-4 h-4 transition-transform" />}
+                                        {school.name}
+                                        <span className="text-xs font-normal text-slate-400 bg-white px-2 py-0.5 rounded border">
+                                            {data.filter(d => d.schoolName === school.name).length} Students
+                                        </span>
+                                    </button>
+                                    <button onClick={() => deleteSchoolData(school.name)} className="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded hover:bg-red-200 font-medium transition-colors">
+                                        Delete School
+                                    </button>
+                                </div>
+                                {expandedSchool === school.name && (
+                                    <div className="p-4 bg-white border-t border-slate-100">
+                                        <h4 className="text-xs font-bold uppercase text-slate-400 mb-3">Classes</h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                            {school.classes.map(cls => (
+                                                <div key={cls} className="flex justify-between items-center p-3 border rounded-lg hover:bg-slate-50">
+                                                    <span className="text-sm font-medium text-slate-700">{cls}</span>
+                                                    <button onClick={() => deleteClassData(school.name, cls)} className="text-red-400 hover:text-red-600">
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                            {school.classes.length === 0 && <div className="text-sm text-slate-400 italic">No classes found.</div>}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                        {schools.length === 0 && <div className="text-center py-8 text-slate-400">No data found in database.</div>}
+                    </div>
+                </div>
             </div>
           );
         };
@@ -1160,7 +1377,7 @@
                         <input type="text" value={school} onChange={(e) => setSchool(e.target.value)} className="w-full pl-9 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="e.g. SMK Maju Jaya" />
                       </div>
                     </div>
-                    <button onClick={() => school && onLogin('teacher', school)} disabled={!school.trim()} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-medium transition-colors disabled:opacity-50">Enter Dashboard</button>
+                    <button onClick={() => school && onLogin('teacher', school.trim())} disabled={!school.trim()} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-medium transition-colors disabled:opacity-50">Enter Dashboard</button>
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -1171,7 +1388,7 @@
                         <input type="password" value={passcode} onChange={(e) => setPasscode(e.target.value)} className="w-full pl-9 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="Enter passcode" />
                       </div>
                     </div>
-                    <button onClick={() => passcode === 'admin' ? onLogin('admin') : alert('Invalid Passcode (Try: admin)')} disabled={!passcode} className="w-full bg-slate-900 hover:bg-slate-800 text-white py-3 rounded-xl font-medium transition-colors disabled:opacity-50">Access District Panel</button>
+                    <button onClick={() => passcode.trim() === 'admin' ? onLogin('admin') : alert('Invalid Passcode (Try: admin)')} disabled={!passcode} className="w-full bg-slate-900 hover:bg-slate-800 text-white py-3 rounded-xl font-medium transition-colors disabled:opacity-50">Access District Panel</button>
                   </div>
                 )}
               </div>
@@ -1179,7 +1396,7 @@
           );
         };
 
-        const MainApp = ({ data, session, db, appId }) => {
+        const MainApp = ({ data, session, db, appId, onLogout }) => {
           const [activeTab, setActiveTab] = useState(session.role === 'admin' ? 'global' : 'master');
           const [targetKPI, setTargetKPI] = useState(70); 
           const [targetGPMP, setTargetGPMP] = useState(4.5); 
@@ -1189,32 +1406,59 @@
           const [isManagingClasses, setIsManagingClasses] = useState(false);
           const [newClassName, setNewClassName] = useState('');
 
+          // Modal State
+          const [confirmModal, setConfirmModal] = useState({ isOpen: false, message: '', onConfirm: null, isAlert: false });
+
+          // Request Confirm/Alert Helper
+          const requestConfirm = (message, action) => {
+             setConfirmModal({ isOpen: true, message, onConfirm: action, isAlert: false });
+          };
+          const showAlert = (message) => {
+             setConfirmModal({ isOpen: true, message, onConfirm: () => setConfirmModal(prev => ({ ...prev, isOpen: false })), isAlert: true });
+          };
+
+          const handleConfirmAction = async () => {
+             if (confirmModal.onConfirm) {
+                 await confirmModal.onConfirm();
+             }
+             setConfirmModal({ ...confirmModal, isOpen: false });
+          };
+
           // Combine derived classes with manually added ones
           const uniqueGroups = useMemo(() => {
-            if (session.role === 'admin') return [...new Set(data.map(d => d.schoolName))].sort();
+            if (session.role === 'admin') return ['All Schools', ...new Set(data.map(d => d.schoolName))].sort();
             
             const derivedClasses = [...new Set(data.map(d => d.className))];
-            const combined = [...new Set([...derivedClasses, ...manualClasses])].sort();
+            // Fix: Map objects to strings for teacher view
+            const manualClassNames = manualClasses.map(m => m.className);
+            const combined = [...new Set([...derivedClasses, ...manualClassNames])].sort();
             return combined;
           }, [data, session.role, manualClasses]);
           
-          const [currentGroup, setCurrentGroup] = useState('Class A');
+          const [currentGroup, setCurrentGroup] = useState(session.role === 'admin' ? 'All Schools' : 'Class A');
 
           // Load manual classes from Firestore on init
           useEffect(() => {
             if (!db) return;
             const fetchClasses = async () => {
-               const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'class_metadata'), where('schoolName', '==', session.schoolName));
+               let q;
+               if (session.role === 'admin') {
+                 // Admin gets all classes
+                 q = query(collection(db, 'artifacts', appId, 'public', 'data', 'class_metadata'));
+               } else {
+                 // Teacher gets school classes
+                 q = query(collection(db, 'artifacts', appId, 'public', 'data', 'class_metadata'), where('schoolName', '==', session.schoolName));
+               }
+               
                const unsubscribe = onSnapshot(q, (snapshot) => {
-                 const loadedClasses = snapshot.docs.map(doc => doc.data().className);
-                 setManualClasses(loadedClasses);
+                 // Store full objects: { className, schoolName }
+                 const loadedData = snapshot.docs.map(doc => doc.data());
+                 setManualClasses(loadedData);
                });
                return () => unsubscribe();
             };
             
-            if (session.role === 'teacher') {
-               fetchClasses();
-            }
+            fetchClasses(); // Run for both roles
           }, [session.role, session.schoolName, db, appId]);
 
 
@@ -1233,37 +1477,44 @@
           // Initialize current group if empty
           useEffect(() => {
             if (uniqueGroups.length > 0 && !uniqueGroups.includes(currentGroup)) {
-               if (currentGroup === 'Class A' && !manualClasses.includes('Class A')) {
+               if (currentGroup === 'Class A' && !manualClasses.map(m => m.className).includes('Class A')) {
                   setCurrentGroup(uniqueGroups[0]);
                }
             }
           }, [uniqueGroups]);
 
           const addManualClass = async (name = newClassName) => {
-            if (name && !manualClasses.includes(name)) {
+            const exists = manualClasses.some(m => m.className === name && m.schoolName === session.schoolName);
+            if (name && !exists) {
               if (db) {
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'class_metadata'), {
-                   schoolName: session.schoolName,
-                   className: name,
-                   createdAt: new Date().toISOString()
-                });
+                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'class_metadata'), {
+                    schoolName: session.schoolName,
+                    className: name,
+                    createdAt: new Date().toISOString()
+                 });
               }
               setNewClassName('');
               setCurrentGroup(name);
             }
           };
 
-          const removeManualClass = async (cls) => {
-            if (confirm(`Remove ${cls} from list? (Student data remains)`)) {
+          const removeManualClass = (cls) => {
+            requestConfirm(`Remove ${cls} from list? (Student data remains)`, async () => {
                if (db) {
-                   const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'class_metadata'), where('schoolName', '==', session.schoolName), where('className', '==', cls));
+                   // FIX: RULE 2 - Fetch by School, filter by Class in JS
+                   const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'class_metadata'), where('schoolName', '==', session.schoolName));
                    const snapshot = await getDocs(q);
-                   snapshot.forEach(async (doc) => {
-                       await deleteDoc(doc.ref);
+                   
+                   const deletePromises = [];
+                   snapshot.forEach(doc => {
+                       if (doc.data().className === cls) {
+                           deletePromises.push(deleteDoc(doc.ref));
+                       }
                    });
+                   await Promise.all(deletePromises);
                }
                if (currentGroup === cls) setCurrentGroup(uniqueGroups[0] || 'Class A');
-            }
+            });
           };
 
           const onBulkImport = async (studentsToImport) => {
@@ -1302,10 +1553,10 @@
 
             try {
               await batch.commit();
-              alert(`Import Successful!\nAdded: ${newCount} New Students\nUpdated: ${updateCount} Existing Records`);
+              showAlert(`Import Successful!\nAdded: ${newCount} New Students\nUpdated: ${updateCount} Existing Records`);
             } catch (e) {
               console.error("Batch commit failed", e);
-              alert("Error importing data. Please try again.");
+              showAlert("Error importing data. Please try again.");
             }
           };
 
@@ -1332,21 +1583,38 @@
             }
           };
 
-          const deleteStudent = async (id) => {
+          const deleteStudent = (id) => {
             if (!db) return;
-            if (confirm("Delete this student record?")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'student_records', id));
+            requestConfirm("Delete this student record?", async () => {
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'student_records', id));
+            });
           };
 
           const filteredData = useMemo(() => {
-            if (session.role === 'admin') return data; 
-            return data.filter(d => d.className === currentGroup);
+            // SORT ALPHABETICALLY BY NAME
+            // First perform role-based filtering
+            let result = [];
+            if (session.role === 'admin') {
+                if (currentGroup === 'All Schools') {
+                    result = data;
+                } else {
+                    result = data.filter(d => d.schoolName === currentGroup);
+                }
+            } else {
+                result = data.filter(d => d.className === currentGroup);
+            }
+            
+            // Then sort the result
+            return result.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
           }, [data, currentGroup, session.role]);
 
           // IMPORTANT: UNFILTERED DATA FOR EXPORT TAB
           // This ensures the export tab receives ALL data for the school (or district), 
           // NOT just the currently selected class from the top menu.
           const exportAllData = useMemo(() => {
-             return session.role === 'admin' ? data : data.filter(d => d.schoolName === session.schoolName);
+              const result = session.role === 'admin' ? data : data.filter(d => d.schoolName === session.schoolName);
+              // Also sort export data alphabetically
+              return result.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
           }, [data, session.role, session.schoolName]);
 
           return (
@@ -1381,25 +1649,42 @@
                           </button>
                         </div>
                       )}
+                      
+                      {/* ADMIN SCHOOL SELECTOR */}
+                      {session.role === 'admin' && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400 uppercase font-bold hidden md:inline">School:</span>
+                          <select value={currentGroup} onChange={handleClassChange} className="bg-slate-800 text-white text-xs px-2 py-1 rounded border border-slate-700 max-w-[150px]">
+                            {uniqueGroups.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </div>
+                      )}
 
                       <span className="text-sm text-slate-400 hidden md:inline-block">|</span>
-                      <button onClick={() => { /* Logout logic passed from parent */ }} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-slate-700"><LogOut className="w-3 h-3" /> Logout</button>
+                      {/* FIXED LOGOUT BUTTON */}
+                      <button onClick={onLogout} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-slate-700"><LogOut className="w-3 h-3" /> Logout</button>
                     </div>
                   </div>
                   
                   {/* Navigation Tabs */}
                   <div className="flex space-x-1 overflow-x-auto no-scrollbar pb-2">
-                       {session.role === 'teacher' && (
-                         <>
-                           <TabButton id="master" label="1. Master Data" active={activeTab} set={setActiveTab} />
-                           <TabButton id="personal" label="2. Student Progress" active={activeTab} set={setActiveTab} />
-                           <TabButton id="analysis" label="3. Class Analysis" active={activeTab} set={setActiveTab} />
-                         </>
-                       )}
-                       <TabButton id="global" label="4. Global Analysis" active={activeTab} set={setActiveTab} />
-                       <TabButton id="leaderboard" label="5. Leaderboard" active={activeTab} set={setActiveTab} />
-                       <TabButton id="kpi" label="6. KPI & Reports" active={activeTab} set={setActiveTab} />
-                       <TabButton id="export" label="7. Data Export" active={activeTab} set={setActiveTab} />
+                        {session.role === 'teacher' && (
+                          <>
+                            <TabButton id="master" label="1. Master Data" active={activeTab} set={setActiveTab} />
+                            <TabButton id="personal" label="2. Student Progress" active={activeTab} set={setActiveTab} />
+                            <TabButton id="analysis" label="3. Class Analysis" active={activeTab} set={setActiveTab} />
+                          </>
+                        )}
+                        <TabButton id="global" label="4. Global Analysis" active={activeTab} set={setActiveTab} />
+                        <TabButton id="leaderboard" label="5. Leaderboard" active={activeTab} set={setActiveTab} />
+                        <TabButton id="kpi" label="6. KPI & Reports" active={activeTab} set={setActiveTab} />
+                        {/* 7. Data Export Tab - explicitly included */}
+                        <TabButton id="export" label="7. Data Export" active={activeTab} set={setActiveTab} />
+                        
+                        {/* 8. Admin Panel - Only for Admin */}
+                        {session.role === 'admin' && (
+                            <TabButton id="admin_manage" label="8. Admin Panel" active={activeTab} set={setActiveTab} />
+                        )}
                   </div>
                 </div>
               </nav>
@@ -1423,6 +1708,7 @@
                       {uniqueGroups.map(cls => (
                         <div key={cls} className="bg-white border border-slate-200 px-3 py-1 rounded-full text-xs flex items-center gap-2">
                           {cls}
+                          {/* Teacher Delete Class Button Fix */}
                           <button onClick={() => removeManualClass(cls)} className="text-slate-400 hover:text-red-500"><X className="w-3 h-3" /></button>
                         </div>
                       ))}
@@ -1432,18 +1718,28 @@
               )}
 
               <div className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
-                 {activeTab === 'master' && <MasterView data={filteredData} currentClass={currentGroup} onBulkImport={onBulkImport} onUpdate={updateStudentMark} onDelete={deleteStudent} setCurrentClass={setCurrentGroup} role={session.role} />}
-                 {activeTab === 'personal' && <PersonalView data={filteredData} onDelete={deleteStudent} onUpdate={updateStudentMark} />}
-                 {activeTab === 'analysis' && <ClassAnalysisView data={filteredData} title={`Class ${currentGroup}`} />}
-                 {activeTab === 'global' && <GlobalAnalysisView data={data} session={session} targetKPI={targetKPI} setTargetKPI={setTargetKPI} targetGPMP={targetGPMP} setTargetGPMP={setTargetGPMP} manualClasses={manualClasses} />}
-                 {activeTab === 'leaderboard' && <LeaderboardView data={data} />}
-                 {activeTab === 'kpi' && <KPIReportView data={filteredData} targetKPI={targetKPI} setTargetKPI={setTargetKPI} targetGPMP={targetGPMP} setTargetGPMP={setTargetGPMP} />}
-                 
-                 {/* CRITICAL FIX: Pass exportAllData (which contains ALL students for the school/district) 
-                     instead of filteredData (which only contains students for the currently selected class in top menu). 
-                     Also, pass 'data' prop to DataExportView so it can derive its own full class list. */}
-                 {activeTab === 'export' && <DataExportView data={exportAllData} role={session.role} classes={uniqueGroups} />}
+                  {activeTab === 'master' && <MasterView data={filteredData} currentClass={currentGroup} onBulkImport={onBulkImport} onUpdate={updateStudentMark} onDelete={deleteStudent} setCurrentClass={setCurrentGroup} role={session.role} />}
+                  {activeTab === 'personal' && <PersonalView data={filteredData} onDelete={deleteStudent} onUpdate={updateStudentMark} />}
+                  {activeTab === 'analysis' && <ClassAnalysisView data={filteredData} title={`Class ${currentGroup}`} />}
+                  {activeTab === 'global' && <GlobalAnalysisView data={data} session={session} targetKPI={targetKPI} setTargetKPI={setTargetKPI} targetGPMP={targetGPMP} setTargetGPMP={setTargetGPMP} manualClasses={manualClasses} />}
+                  {activeTab === 'leaderboard' && <LeaderboardView data={data} />}
+                  {activeTab === 'kpi' && <KPIReportView data={filteredData} targetKPI={targetKPI} setTargetKPI={setTargetKPI} targetGPMP={targetGPMP} setTargetGPMP={setTargetGPMP} />}
+                  
+                  {/* Data Export View - Rendered when tab #7 is active */}
+                  {activeTab === 'export' && <DataExportView data={exportAllData} role={session.role} />}
+                  
+                  {/* Admin Manager View - Rendered when tab #8 is active */}
+                  {activeTab === 'admin_manage' && <AdminManagerView data={data} db={db} appId={appId} requestConfirm={requestConfirm} />}
               </div>
+
+              {/* Confirm Modal Rendered at Root of MainApp */}
+              <ConfirmModal 
+                  isOpen={confirmModal.isOpen} 
+                  message={confirmModal.message} 
+                  onConfirm={handleConfirmAction} 
+                  onCancel={() => setConfirmModal({...confirmModal, isOpen: false})} 
+                  isAlert={confirmModal.isAlert}
+              />
             </div>
           );
         };
@@ -1488,6 +1784,8 @@
             const q = query(collection(globalDb, 'artifacts', globalAppId, 'public', 'data', 'student_records'));
             const unsubscribe = onSnapshot(q, (snapshot) => {
               const records = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              // Sort records alphabetically by name
+              records.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
               setAllData(records);
             });
             return () => unsubscribe();
@@ -1501,13 +1799,9 @@
 
           const viewableData = session.role === 'admin' ? allData : allData.filter(d => d.schoolName === session.schoolName);
 
-          // We pass handleLogout down to MainApp via props or just render MainApp inside this layout wrapper
-          // For simplicity in this single-file, we'll render the MainApp logic directly inside here or pass props.
-          // To match the previous MainApp structure, I've moved the Navigation INTO MainApp component above for cleaner state access.
-          // Wait, I moved Nav inside MainApp in the code block above to access 'currentGroup' state. 
-          
+          // Pass handleLogout to MainApp so the logout button works
           return (
-             <MainApp data={viewableData} session={session} db={globalDb} appId={globalAppId} />
+             <MainApp data={viewableData} session={session} db={globalDb} appId={globalAppId} onLogout={handleLogout} />
           );
         }
 
