@@ -341,7 +341,8 @@
 
           return (
             <div className="w-full overflow-x-auto">
-              <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full h-full" style={{ minWidth: '600px' }}>
+              {/* Removed minWidth: '600px' to allow chart to compress in PDF generation */}
+              <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full h-auto">
                 {[0, 25, 50, 75, 100].map(tick => {
                   const y = chartHeight - padding - (tick * contentHeight / 100);
                   return (
