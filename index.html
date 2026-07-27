@@ -137,11 +137,12 @@
       ExternalLink,
       ThumbsUp,
       ThumbsDown,
-      ClipboardCheck
+      ClipboardCheck,
+      Edit2
     } from 'lucide-react';
     import { initializeApp } from 'firebase/app';
     import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-    import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
+    import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, getDocs, updateDoc } from 'firebase/firestore';
 
     // ----------------------------------------------------------------------
     // 🔥 LIVE FIREBASE PROJECT CONFIGURATION
@@ -298,6 +299,10 @@
       const [selectedFeedbackQuestion, setSelectedFeedbackQuestion] = useState('logistik_pendaftaran');
       
       const [drafts, setDrafts] = useState({});
+
+      // State for inline editing
+      const [editingId, setEditingId] = useState(null);
+      const [editingData, setEditingData] = useState({});
 
       // Normal Modal (Alert/Confirm)
       const [modal, setModal] = useState({
@@ -896,6 +901,45 @@
             showAlert("Ralat", "Gagal memadam rekod.");
           }
         });
+      };
+
+      // Handlers for Inline Editing
+      const handleEditClick = (recipient) => {
+        setEditingId(recipient.id);
+        setEditingData({ ...recipient });
+      };
+
+      const handleCancelEdit = () => {
+        setEditingId(null);
+        setEditingData({});
+      };
+
+      const handleUpdateField = (field, value) => {
+        setEditingData(prev => ({ ...prev, [field]: value }));
+      };
+
+      const handleSaveEdit = async () => {
+        if (!editingData.fullName || !editingData.icNumber || !editingData.schoolUnit || !editingData.pic) {
+          showAlert("Maklumat Tidak Lengkap", "Sila isi semua ruangan penting.");
+          return;
+        }
+
+        try {
+          const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'recipients', editingId);
+          await updateDoc(docRef, {
+            salutation: editingData.salutation,
+            fullName: editingData.fullName,
+            icNumber: editingData.icNumber,
+            schoolUnit: editingData.schoolUnit,
+            pic: editingData.pic
+          });
+          setEditingId(null);
+          setEditingData({});
+          addToast("Maklumat berjaya dikemas kini.", "success");
+        } catch (err) {
+          console.error("Error updating data:", err);
+          showAlert("Ralat", "Gagal mengemas kini maklumat.");
+        }
       };
 
       const handleAddCategoryConfig = (ceremonyId) => {
@@ -2350,28 +2394,64 @@
 
                     return (
                       <React.Fragment key={category}>
-                        {filled.map((r, i) => (
-                          <tr key={r.id} className="bg-emerald-50/40 hover:bg-emerald-50 transition-colors group">
-                            <td className="px-4 py-2 text-sm font-semibold text-emerald-800 bg-emerald-100/50 border-r border-slate-200 relative group/cat">
-                              {i === 0 ? <div className="flex items-start gap-2 pr-6"><span className="text-emerald-500 mt-0.5">✓</span> <span>{category}</span></div> : ''}
-                              {i === 0 && (
-                                <button onClick={() => handleDeleteCategoryConfig(ceremony.id, category)} className="absolute right-2 top-1/2 -translate-y-1/2 text-emerald-600 hover:text-red-500 opacity-0 group-hover/cat:opacity-100 transition-opacity" title="Padam Kategori">
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                        {filled.map((r, i) => {
+                          const isEditing = editingId === r.id;
+
+                          return (
+                            <tr key={r.id} className="bg-emerald-50/40 hover:bg-emerald-50 transition-colors group">
+                              <td className="px-4 py-2 text-sm font-semibold text-emerald-800 bg-emerald-100/50 border-r border-slate-200 relative group/cat">
+                                {i === 0 ? <div className="flex items-start gap-2 pr-6"><span className="text-emerald-500 mt-0.5">✓</span> <span>{category}</span></div> : ''}
+                                {i === 0 && !isEditing && (
+                                  <button onClick={() => handleDeleteCategoryConfig(ceremony.id, category)} className="absolute right-2 top-1/2 -translate-y-1/2 text-emerald-600 hover:text-red-500 opacity-0 group-hover/cat:opacity-100 transition-opacity" title="Padam Kategori">
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </td>
+
+                              {isEditing ? (
+                                <>
+                                  <td className="px-2 py-1 align-middle">
+                                    <select value={editingData.salutation || 'Encik'} onChange={(e) => handleUpdateField('salutation', e.target.value)} className="w-full text-xs border-slate-300 rounded p-1.5 focus:ring-blue-500 focus:border-blue-500 border bg-white shadow-sm">
+                                      {SALUTATIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                  </td>
+                                  <td className="px-2 py-1 align-middle">
+                                    <input value={editingData.fullName || ''} onChange={(e) => handleUpdateField('fullName', e.target.value)} className="w-full text-xs border-slate-300 rounded p-1.5 uppercase focus:ring-blue-500 focus:border-blue-500 border shadow-sm" />
+                                  </td>
+                                  <td className="px-2 py-1 align-middle">
+                                    <input value={editingData.icNumber || ''} onChange={(e) => handleUpdateField('icNumber', e.target.value)} className="w-full text-xs border-slate-300 rounded p-1.5 focus:ring-blue-500 focus:border-blue-500 border shadow-sm font-mono" />
+                                  </td>
+                                  <td className="px-2 py-1 align-middle">
+                                    <input value={editingData.schoolUnit || ''} onChange={(e) => handleUpdateField('schoolUnit', e.target.value)} className="w-full text-xs border-slate-300 rounded p-1.5 focus:ring-blue-500 focus:border-blue-500 border shadow-sm" />
+                                  </td>
+                                  <td className="px-2 py-1 align-middle">
+                                    <input value={editingData.pic || ''} onChange={(e) => handleUpdateField('pic', e.target.value)} className="w-full text-xs border-slate-300 rounded p-1.5 uppercase focus:ring-blue-500 focus:border-blue-500 border shadow-sm" />
+                                  </td>
+                                  <td className="px-2 py-1 text-center align-middle">
+                                    <div className="flex justify-center gap-1">
+                                      <button onClick={handleSaveEdit} className="text-white bg-emerald-500 hover:bg-emerald-600 p-1.5 rounded transition-colors shadow-sm" title="Simpan"><Check className="w-4 h-4" /></button>
+                                      <button onClick={handleCancelEdit} className="text-slate-500 bg-white hover:bg-slate-100 p-1.5 rounded border border-slate-200 transition-colors shadow-sm" title="Batal"><X className="w-4 h-4" /></button>
+                                    </div>
+                                  </td>
+                                </>
+                              ) : (
+                                <>
+                                  <td className="px-2 py-2 text-sm font-medium">{r.salutation}</td>
+                                  <td className="px-2 py-2 text-sm font-medium uppercase">{r.fullName}</td>
+                                  <td className="px-2 py-2 text-sm font-mono text-slate-600">{r.icNumber}</td>
+                                  <td className="px-2 py-2 text-sm text-slate-700">{r.schoolUnit}</td>
+                                  <td className="px-2 py-2 text-sm text-slate-700 uppercase">{r.pic}</td>
+                                  <td className="px-2 py-2 text-center">
+                                    <div className="flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <button onClick={() => handleEditClick(r)} className="text-blue-500 hover:text-blue-700 p-1 transition-colors bg-white rounded shadow-sm border border-blue-100" title="Kemas Kini"><Edit2 className="w-4 h-4" /></button>
+                                      <button onClick={() => handleDelete(r.id)} className="text-red-500 hover:text-red-700 p-1 transition-colors bg-white rounded shadow-sm border border-red-100" title="Padam"><Trash2 className="w-4 h-4" /></button>
+                                    </div>
+                                  </td>
+                                </>
                               )}
-                            </td>
-                            <td className="px-2 py-2 text-sm font-medium">{r.salutation}</td>
-                            <td className="px-2 py-2 text-sm font-medium uppercase">{r.fullName}</td>
-                            <td className="px-2 py-2 text-sm font-mono text-slate-600">{r.icNumber}</td>
-                            <td className="px-2 py-2 text-sm text-slate-700">{r.schoolUnit}</td>
-                            <td className="px-2 py-2 text-sm text-slate-700 uppercase">{r.pic}</td>
-                            <td className="px-2 py-2 text-center">
-                              <button onClick={() => handleDelete(r.id)} className="text-red-500 hover:text-red-700 p-1 transition-colors bg-white rounded shadow-sm border border-red-100">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                            </tr>
+                          );
+                        })}
                         
                         <tr className={filled.length === 0 ? "bg-red-50/20" : "bg-white"}>
                           <td className={`px-4 py-2 text-sm border-r border-slate-200 relative group/cat ${filled.length === 0 ? 'font-semibold text-slate-800' : 'text-slate-400 font-normal'}`}>
