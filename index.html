@@ -1003,7 +1003,7 @@
           `"${r.fullName}"`,
           `"${r.icNumber}"`,
           `"${r.schoolUnit}"`,
-          `"${r.category}"`,
+          `"${(r.category || '').replace(/koko|kokum/gi, 'KoKum')}"`,
           `"${CEREMONIES.find(c => c.id === r.ceremony)?.name || r.ceremony}"`,
           `"${r.pic}"`
         ]);
